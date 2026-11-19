@@ -1,0 +1,25 @@
+Practicum
+AI Disclosure
+
+
+    #AI Prompts questions:
+
+    #Which function allows me to convert geometric shapefile data to caculate area of a county or state in r? -> st_area()
+
+    #How do I calculate the area of each county in a shapefile in R and add it as a new column using dplyr?
+
+    #How do I create a new true or false column in dplyr that flags the row that has the highest value in area_sq_miles?
+
+    #How do I convert my square meters to square miles in r?
+
+    #How do I save my shapefile as a geopackage? -> Use st_write
+
+    #n a U.S. Census shapefile, which column stores the official land area of each county, and what unit is it measured in? -> ALAND
+
+    #How do I convert a regular CSV table with Latitude and Longitude columns into a spatial sf object in R, and why does Longitude have to go first in coords = c(...)?
+
+    #Why do I need to use st_transform(st_crs(ny_gpkg)) on my CSV points before plotting them on top of my county map?
+
+    #How do I use dplyr to pull out just the single row with the highest or lowest value in a column, and how do I stack those two rows together into one summary table?
+
+    #How do I plot two different spatial datasets (county polygons and high-point dots) on the same ggplot() map, and how do I style dots with a colored inside (fill) and a black outline (color)?
