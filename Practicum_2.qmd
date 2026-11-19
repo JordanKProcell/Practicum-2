@@ -1,0 +1,257 @@
+---
+title: "Practicum 2"
+format: pdf
+---
+
+```{r}
+library(sf)
+library(tidyverse)
+library(tigris)
+library(units)
+library(dplyr)
+
+
+  
+#1 - The file cb_2024_us_county_500k.shp is a shape file that includes shapes for all counties in the United States. Use it to draw a map of the counties of New York State (and only New York State - do not include counties from neighboring states).
+
+#Read the Shapefile  
+counties <- st_read("~/Desktop/cb_2024_us_county_500k.shp")
+
+#Filter for New York State (FIPS 36).
+ny_counties <- filter(counties, STATEFP == "36")
+
+#Caculate the area of each county
+ny_counties$area_m2 <- st_area(ny_counties)
+
+#Convert the area of each county to square miles
+ny_counties$area_sq_miles <- set_units(ny_counties$area_m2, "mi^2")
+
+#Convert the area into plain numbers
+ny_counties$area_sq_miles <- as.numeric(set_units(st_area(ny_counties), "mi^2"))
+
+#Find the largest area for county
+ny_counties$is_largest <- ny_counties$area_sq_miles == max(ny_counties$area_sq_miles)
+
+# 2. Transform the shapefile to a geopackage
+ny_gpkg <- st_read("~/Desktop/ny_counties.gpkg")
+
+# 3. Create map for visualization using geom_sf()
+ggplot(data = ny_gpkg) +
+  geom_sf(aes(fill = is_largest), color = "black", linewidth = 0.2) +
+  scale_fill_manual(
+    values = c("FALSE" = "#FFFACD", "TRUE" = "#698B69"),
+    labels = c("Other Counties", "Largest County (St. Lawrence)"),
+    name = NULL) +
+  geom_sf_text(aes(label = NAME), size = 2) +
+  ggtitle("Counties of New York State (2023)") +
+  theme_bw()
+```
+
+```{r}
+
+#| message: false
+#| warning: false
+
+library(tidycensus)
+library(tidyverse)
+library(sf)
+library(scales)
+
+Sys.setenv(CENSUS_API_KEY = "9c9c7d071c8c8424a701ad68cc0b7fc6aa835ce2")
+
+# 1. Define the years to compare
+years <- 2020:2023
+
+# 2. Download NY county shapes once (so geometry downloads fast)
+ny_shapes <- get_acs(
+  geography = "county",
+  variables = "B01003_001",
+  state = "NY",
+  year = 2023,
+  geometry = TRUE
+) %>%
+  select(GEOID, NAME, geometry)
+
+# 3. Loop get_acs() across 2020-2023 and attach the year to each row
+ny_pop_time <- map_dfr(years, function(yr) {
+  get_acs(
+    geography = "county",
+    variables = "B01003_001",
+    state = "NY",
+    year = yr,
+    geometry = FALSE
+  ) %>%
+    mutate(year = yr)
+})
+
+# 4. Join the multi-year population data to the county shapes
+ny_map_time <- ny_shapes %>%
+  left_join(ny_pop_time, by = c("GEOID", "NAME"))
+
+# 5. Plot all 4 years side-by-side with a shared color scale
+ggplot(data = ny_map_time) +
+  geom_sf(aes(fill = estimate), color = "black", linewidth = 0.2) +
+  scale_fill_gradient(
+    low = "#ffffcc",
+    high = "#d94701",
+    labels = comma,
+    name = "Population"
+  ) +
+  facet_wrap(~year, ncol = 2) +
+  ggtitle("County Population in New York State (2020–2023)") +
+  theme_void() +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5)
+  )
+```
+
+
+```{r}
+# 4. Table of county names, coordinates, and land area below the map
+centers <- st_centroid(ny_gpkg)
+coords <- st_coordinates(centers)
+
+county_table <- st_drop_geometry(ny_gpkg) %>%
+  mutate(
+    latitude = round(coords[, "Y"], 4),
+    longitude = round(coords[, "X"], 4),
+    area_sq_miles = set_units(ALAND, "m^2") %>% 
+    set_units("mi^2") %>% as.numeric() %>% round(1)) %>%
+  select(County = NAME, Latitude = latitude, Longitude = longitude, `Area (sq mi)` = area_sq_miles) %>%
+arrange(desc(`Area (sq mi)`))
+
+knitr::kable(county_table)
+
+# The largest county by area (square miles) in New York is St. Lawrence (2,680.3 sq mi)
+```
+
+```{r}
+
+# 3 - Use nyshighpoints.csv to plot the location of high points of every county in New York over the base county map.
+
+library(sf)
+library(tidyverse)
+
+
+#Read the CSV and convert to spatial sf object matching the base map CRS
+highpoints_df <- read_csv("~/Desktop/nyshighpoints.csv", show_col_types = FALSE)
+
+highpoints_sf <- highpoints_df %>%
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) %>%
+  st_transform(st_crs(ny_gpkg))
+
+#Isolate the single highest high point in New York State
+highest_point <- highpoints_sf %>%
+  slice_max(Elevation_Meters, n = 1)
+
+#Plot the base map, colored high points, and label the highest peak
+ggplot() +
+  geom_sf(data = ny_gpkg, fill = "#CAE1FF", color = "gray55", linewidth = 0.3) +
+  geom_sf(
+    data = highpoints_sf,
+    aes(fill = Elevation_Meters),
+    shape = 21,
+    color = "black",
+    size = 2.2,
+    stroke = 0.4) +
+  
+  #Add a label above the highest point
+  geom_sf_label(
+    data = highest_point,
+    aes(label = paste0("Highest Elevation - Mount Marcy (", Elevation_Meters, " m)")),
+    nudge_y = 0.22,
+    size = 3.0,
+    fontface = "bold",
+    fill = "#FFFFE0",
+    alpha = 0.6) +
+  scale_fill_gradientn(
+    colors = c("#54FF9F", "#f4d03f", "#FF6A6A", "#B22222", "#CD00CD"),
+    name = "Elevation (m)") +
+  ggtitle("Highest Elevation Points by County in New York State (2023)") +
+  theme_bw()
+
+#Highest county high point in New York State
+highest_hp <- highpoints_df %>%
+  slice_max(Elevation_Meters, n = 1)
+
+#Lowest county high point in New York State
+lowest_hp <- highpoints_df %>%
+  slice_min(Elevation_Meters, n = 1)
+
+#Print both together as a summary table
+bind_rows(highest_hp, lowest_hp) %>%
+  knitr::kable()
+
+```
+
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidycensus)
+library(tidyverse)
+library(sf)
+library(scales)
+
+# Force the active R session to use your API key immediately
+Sys.setenv(CENSUS_API_KEY = "9c9c7d071c8c8424a701ad68cc0b7fc6aa835ce2")
+
+# 1. Load New York county populations from the US Census (ACS 5-Year Estimates)
+ny_pop <- get_acs(
+  geography = "county",
+  variables = "B01003_001",
+  state = "NY",
+  year = 2023,
+  geometry = TRUE
+)
+
+# 2. Shade each county by population using a light yellow to dark orange scale
+ggplot(data = ny_pop) +
+  geom_sf(aes(fill = estimate), color = "black", linewidth = 0.25) +
+  scale_fill_gradient(
+    low = "#ffffcc",
+    high = "#d94701",
+    labels = comma,
+    name = "Population"
+  ) +
+  ggtitle("County Population in New York State (2023)") +
+  theme_bw()
+```
+
+```{r}
+# 1. Join population estimates to ny_gpkg (which already has ALAND) and calculate density
+
+ny_density <- ny_gpkg %>%
+  left_join(st_drop_geometry(ny_pop), by = "GEOID") %>%
+  mutate(
+    area_sq_miles = set_units(ALAND, "m^2") %>% set_units("mi^2") %>% as.numeric(),
+    pop_density = estimate / area_sq_miles)
+
+# 2. Shade each county by population density (Light Lavender to Dark Purple)
+
+ggplot(data = ny_density) +
+  geom_sf(aes(fill = pop_density), color = "black", linewidth = 0.25) +
+  scale_fill_gradient(
+    low = "#f2f0f7",
+    high = "#54278f",
+    labels = comma,
+    name = "People / Sq Mi") +
+  ggtitle("County Population Density in New York State") +
+  theme_bw()
+
+# 3. Summary table for largest/smallest population and most/least dense counties
+summary_stats <- ny_density %>%
+  st_drop_geometry() %>%
+  summarise(
+    `Largest Population` = NAME.x[which.max(estimate)],
+    `Smallest Population` = NAME.x[which.min(estimate)],
+    `Most Dense` = NAME.x[which.max(pop_density)],
+    `Least Dense` = NAME.x[which.min(pop_density)])
+
+knitr::kable(summary_stats)
+
+#The largest county by population density is Kings County, which contains a population of 2.68 million residents. The smallest is
+```
+
